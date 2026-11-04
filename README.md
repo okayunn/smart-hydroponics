@@ -37,7 +37,7 @@ firmware/                # 将来ESP32を配置
 docs/                    # 必要になった設計資料
 ```
 
-既存の画像解析PoC（main.py、analysis.py、requirements.txt、tests）は残しています。旧READMEは[docs/image-analysis-poc.md](docs/image-analysis-poc.md)に保存しました。旧コマンドはリポジトリルートから実行してください。水耕栽培アプリとは未連携です。
+リポジトリにはGo BackendとFlutterアプリの基盤を置きます。設計資料が必要になった段階でdocs/を追加します。
 
 ## Backend開発環境
 

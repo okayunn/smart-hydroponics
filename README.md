@@ -8,7 +8,7 @@
 
 詳細の上部にも同じ基本情報を表示します。周辺環境は気温・湿度・照度、養液は水温・水位・水量を表示予定です。履歴データを保存しますが、履歴グラフはv0.1対象外です。
 
-センサー値とは別に鉢全体のNORMAL / WARNING / OFFLINEを扱い、当初は単純なルールで判定します。判定場所・しきい値・優先順位は未決定です。
+鉢の状態は単一のNORMAL / WARNINGではなく、該当する状態コードの配列`conditions`で表します。例：`["WATER_LEVEL_LOW", "WATER_TEMPERATURE_LOW"]`。問題がない場合は空配列とします。状態判定ルールとしきい値は後で決めます。通信のOFFLINE状態は栽培上の状態と分ける案です。
 
 ## システム構成・技術スタック
 
@@ -131,7 +131,7 @@ DTOはAPIのキー名・型・null許容に合わせJSON変換を生成します
 API JSON → DTO → Entity/Domain Model → BLoC → UI
 ```
 
-DTO → Entityはfeature内のextensionまたは小さなmapper関数を手書きします。単位変換、日時、欠測、未知statusなどの意味を明示してテストします。コンストラクター、copyWith、equality等は生成しますが、変換専用パッケージは追加しません。
+DTO → Entityはfeature内のextensionまたは小さなmapper関数を手書きします。単位変換、日時、欠測、未知conditionsコードなどの意味を明示してテストします。コンストラクター、copyWith、equality等は生成しますが、変換専用パッケージは追加しません。
 
 ## build_runner・コード生成の運用
 
@@ -170,20 +170,54 @@ lib/codegen_sample/sample.dartは検証専用のSampleDto/Event/Stateで、main.
 | GET /api/v1/pots/{potId} | 基本情報と最新計測値 |
 | POST /api/v1/pots/{potId}/measurements | 計測履歴の追加（主にデバイス側） |
 
-JSON契約、認証、エラー、ページング、重複送信対策は未決定です。Mobileが履歴追加APIを呼ぶかも未決定です。
+認証、エラー、ページング、重複送信対策は未決定です。鉢IDの具体的な形式とMobileが履歴追加APIを呼ぶかも未決定です。以下は実装前のJSON案です。
+
+一覧は鉢ID、植物名、状態コード配列、最終計測時刻を返します。
+
+```json
+[
+  {
+    "id": "pot-id",
+    "plant_name": "スイートバジル",
+    "conditions": [],
+    "measured_at": "2026-11-13T09:30:00Z"
+  }
+]
+```
+
+詳細は基本情報と最新計測値を返します。サンプル値は形式の説明用です。
+
+```json
+{
+  "id": "pot-id",
+  "plant_name": "スイートバジル",
+  "conditions": ["WATER_LEVEL_LOW", "WATER_TEMPERATURE_LOW"],
+  "latest_measurement": {
+    "temperature_c": 16.0,
+    "humidity_percent": 30.0,
+    "illuminance_lux": 200.0,
+    "water_temperature_c": 15.0,
+    "water_level_mm": 30.0,
+    "water_volume_l": 3.3,
+    "measured_at": "2026-11-13T09:30:00Z"
+  }
+}
+```
+
+`conditions`の値は数値ではなく文字列コードとし、GoとFlutterそれぞれでEnum相当の型に対応付けます。問題がなければ空配列です。水位低下・水温低下など複数の状態が同時に起きることを表現できます。Flutter側でコードを日本語表示に変換します。コード名と判定しきい値は実装時に確定します。
 
 ## 想定データモデル（設計案）
 
 | モデル | 項目 |
 | --- | --- |
-| Pot | potId、plantName、status、lastUpdatedAt |
-| Measurement | potId、measuredAt、receivedAt、気温、湿度、照度、水温、水位、水量 |
+| Pot | id、plantName、conditions |
+| Measurement | potId、measuredAt、receivedAt、temperatureC、humidityPercent、illuminanceLux、waterTemperatureC、waterLevelMm、waterVolumeL |
 
-計測は履歴として保存し、詳細には最新値を返す予定です。計測時刻と受信時刻を区別し、最終更新の意味を決めます。温度°C、湿度%、照度lux、水位mm、水量mLを候補とし、センサーと校正に合わせて確定します。欠測を0と同一視せずnull等の契約を決めます。照度luxとPPFDは別の測定量として扱います。
+計測は履歴として保存し、詳細には最新値を返す予定です。画面の「最終計測時刻」にはセンサーが測定した`measuredAt`を表示します。Backendが受信した時刻`receivedAt`も通信遅延や再送の調査用に保存する案です。どちらもタイムゾーン付きISO 8601形式（例：`2026-11-13T09:30:00Z`）を使います。植物はスイートバジルとミントを想定します。温度°C、湿度%、照度lux、水位mm、水量Lは仮の単位で、センサー仕様に合わせて確定します。欠測を0と同一視せずnull等で扱います。照度luxとPPFDは別の測定量です。
 
 ## 最初のTODO
 
-1. API JSON契約、単位・null・日時・未知statusの扱いを決める。
+1. API JSON契約、ID形式、単位・null・日時・未知conditionsコードの扱いを決める。
 2. DBと履歴保存方法、鉢状態のルールを決める。
 3. Goの入口と設定読み込みを作り、GET一覧から実装する。
 4. Pot DTO/Modelとmapperを作り、生成・変換テストを行う。
@@ -206,4 +240,3 @@ JSON契約、認証、エラー、ページング、重複送信対策は未決�
 pH、EC、PPFD、DLI、溶存酸素の追加や、AI/画像解析による成長速度低下、水温/養液異常、摘心推奨、収穫時期接近、病害可能性の判定を将来検討します。
 
 ログイン、ユーザー管理、Push通知/設定、履歴グラフ、カメラ、画像解析のアプリ統合、AI、自動給水、自動液肥投入、自動照明制御は今回実装しません。必要になった段階で仕様を決めます。
-
